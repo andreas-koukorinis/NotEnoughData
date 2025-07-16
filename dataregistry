@@ -1,0 +1,87 @@
+import pandas as pd
+from datetime import datetime
+from rig import DataFactoryConnectionType, DataObjectManager, DataObjectStoreLocation, StorageType, StorageZone
+
+# Connect to the data registry
+mgr = DataObjectManager("credit_datasets", conn_type=DataFactoryConnectionType.RESEARCH, allow_writes=False)
+
+# Define your target ETFs and date range
+etfs = ["LQD", "HYG", "VCIT"]  # update with your list
+expected_dates = pd.date_range(start="2023-01-01", end="2025-07-15", freq="B")  # business days
+
+# Pull the ETF constituent dataset
+loc = DataObjectStoreLocation("etf_constituents_reference", "20250321", storage_type=StorageType.S3, version=None, storage_zone=StorageZone.AWS_US_USE2)
+df = mgr.fetch_dependency_immediate(loc)
+
+# Convert to DataFrame if needed
+if not isinstance(df, pd.DataFrame):
+    df = pd.DataFrame(df)
+
+# Convert date column to datetime if needed
+df["date"] = pd.to_datetime(df["date"])
+
+# Quality control: Missing date report
+missing_by_etf = {}
+for etf in etfs:
+    df_etf = df[df["etf_ticker"] == etf]
+    actual_dates = df_etf["date"].drop_duplicates()
+    missing_dates = expected_dates.difference(actual_dates)
+    missing_by_etf[etf] = missing_dates
+
+# Display summary
+for etf, missing in missing_by_etf.items():
+    print(f"{etf}: {len(missing)} missing dates")
+    if len(missing) > 0:
+        print(missing.strftime("%Y-%m-%d").tolist()[:10])  # Preview first 10 missing dates
+
+import pandas as pd
+from datetime import datetime
+
+# --- Load and preprocess ---
+df["date"] = pd.to_datetime(df["date"])
+etfs = df["etf_ticker"].unique()
+
+# --- Set date range: last 5 years ---
+start_date = pd.Timestamp.today().replace(day=1) - pd.DateOffset(years=5)
+end_date = pd.Timestamp.today()
+
+# --- Generate expected business days per (year, month) ---
+all_months = pd.date_range(start=start_date, end=end_date, freq='MS')
+expected_by_month = {
+    (month.year, month.month): pd.bdate_range(month, month + pd.offsets.MonthEnd(0))
+    for month in all_months
+}
+
+# --- Track missing dates per ETF/month ---
+records = []
+
+for etf in etfs:
+    df_etf = df[df["etf_ticker"] == etf]
+    observed_dates = df_etf["date"].drop_duplicates()
+
+    for (year, month), expected_dates in expected_by_month.items():
+        actual_dates = observed_dates[
+            (observed_dates.dt.year == year) & (observed_dates.dt.month == month)
+        ]
+        missing_dates = expected_dates.difference(actual_dates)
+
+        if len(missing_dates) > 0:
+            records.append({
+                "ETF": etf,
+                "Year": year,
+                "Month": month,
+                "Missing Count": len(missing_dates),
+                "Missing Dates": ", ".join(d.strftime("%Y-%m-%d") for d in missing_dates)
+            })
+
+# --- Output DataFrame ---
+missing_df = pd.DataFrame(records)
+missing_df.sort_values(by=["ETF", "Year", "Month"], inplace=True)
+
+# --- Print first few rows for inspection ---
+print(missing_df.head(10))
+
+# --- Optionally: Save to CSV or Excel ---
+# missing_df.to_csv("missing_etf_dates_by_month.csv", index=False)
+# missing_df.to_excel("missing_etf_dates_by_month.xlsx", index=False)
+
