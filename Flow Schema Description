@@ -1,0 +1,34 @@
+bond_master
+– Static reference data about every bond in your universe.
+– Holds identifiers (CUSIP/FIGI), issuer, sector/rating, total par outstanding, settlement convention, coupon, maturity.
+– Used to join all time‑series data back to the right bond and to apply sector‑ or rating‑based neutralization.
+
+bond_market_data
+– Daily price and liquidity metrics for each bond.
+– Fields like clean price, bid–ask spread, effective duration, and ADV (average daily volume) let you compute yields, DV01, filters, and next‑day returns.
+– Feeds both signal construction (e.g. duration adjustment) and backtest PnL.
+
+etf_daily_flows
+– Daily snapshots of each ETF’s bond holdings plus explicit breakdown of create/redeem flows into “allocation” vs. “reconstitution.”
+– Also carries ETF AUM, NAV, price, and trading volume.
+– This underpins your daily par‑flow, allocation‑flow, recon‑flow and the arbitrage sensitivity term 
+Λ
+a
+r
+b
+Λ 
+arb
+ .
+
+daily_signals
+– Pre‑computed “rolling” signals on each rebalance date (often daily).
+– Contains raw six‑month par‑flow, duration‑adjusted flow, decomposed components, arbitrage term, and directional flow.
+– By storing these once per day, you avoid re‑running heavy window aggregations on the fly.
+
+tracking_error
+– A log of realized tracking error vs. your benchmark, at whatever cadence you choose (daily or weekly).
+– Allows you to monitor TE against your target and trigger alerts or risk‑control actions if you breach limits.
+
+daily_portfolio
+– Your actual backtest ledger: for each bond and each weight date, it records the final position weight, the next‑day return, and the resulting PnL.
+– Enables calculation of strategy returns, turnover, drawdowns, and realized tracking error.
