@@ -1,0 +1,69 @@
+-- 1. Bond Master (static reference)
+CREATE TABLE bond_master (
+  bond_id            VARCHAR PRIMARY KEY,   -- CUSIP or FIGI
+  issuer             VARCHAR,
+  sector             VARCHAR,
+  rating             VARCHAR,
+  total_par_outstanding NUMERIC,           -- Π_{i}, in $mm
+  settlement_days    INTEGER,
+  coupon_rate        NUMERIC,
+  maturity_date      DATE
+);
+
+-- 2. Daily Bond Market Data
+CREATE TABLE bond_market_data (
+  bond_id            VARCHAR  REFERENCES bond_master(bond_id),
+  trade_date         DATE,                  -- business day
+  clean_price        NUMERIC,               -- P_{i,t} per $100
+  bid_ask_spread_bp  NUMERIC,               -- in bps
+  duration_oas       NUMERIC,               -- D_{i,t}
+  adv_par            NUMERIC,               -- ADV in par notional
+  PRIMARY KEY (bond_id, trade_date)
+);
+
+-- 3. Daily ETF Holdings & Create/Redeem Events
+CREATE TABLE etf_daily_flows (
+  etf_id             VARCHAR,               -- ETF ticker or ID
+  bond_id            VARCHAR  REFERENCES bond_master(bond_id),
+  flow_date          DATE,                  -- business day
+  par_notional       NUMERIC,               -- Q_{i,e,t}
+  delta_par_alloc    NUMERIC,               -- ΔQ^{alloc}_{i,e,t}
+  delta_par_recon    NUMERIC,               -- ΔQ^{recon}_{i,e,t}
+  aum                NUMERIC,               -- AUM_{e,t}
+  nav                NUMERIC,               -- NAV_{e,t}
+  price              NUMERIC,               -- Price_{e,t}
+  volume             NUMERIC,               -- V_{e,t}
+  PRIMARY KEY (etf_id, bond_id, flow_date)
+);
+
+-- 4. Precomputed Daily Signals
+CREATE TABLE daily_signals (
+  bond_id            VARCHAR  REFERENCES bond_master(bond_id),
+  signal_date        DATE,
+  raw_par_flow_6m    NUMERIC,               -- rolling 6‑month raw %
+  dur_adj_flow_6m    NUMERIC,               -- duration‐adjusted
+  alloc_flow_6m      NUMERIC,
+  wrecon_flow_6m     NUMERIC,
+  irecon_flow_6m     NUMERIC,
+  arb_sensitivity    NUMERIC,
+  dir_flow           NUMERIC,
+  PRIMARY KEY (bond_id, signal_date)
+);
+
+-- 5. Tracking‐Error Log (daily or weekly)
+CREATE TABLE tracking_error (
+  rebalance_date     DATE,                  -- daily or week‐end
+  te_observed        NUMERIC,               -- e.g. realized TE vs benchmark
+  te_target          NUMERIC,               -- e.g. 150bp limit
+  comments           TEXT,                  -- any overrides or events
+  PRIMARY KEY (rebalance_date)
+);
+
+-- 6. Portfolio Weights & Returns
+CREATE TABLE daily_portfolio (
+  bond_id            VARCHAR  REFERENCES bond_master(bond_id),
+  weight_date        DATE,                  -- date weights apply
+  weight             NUMERIC,               -- final ω_{i,t}
+  return_next_day    NUMERIC,               -- r_{i,t+1}
+  pnl                NUMERIC                -- ω * r
+);
