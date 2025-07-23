@@ -1,0 +1,91 @@
+t a high level, you need two pieces of logic:
+
+Joining all the time‐series back to the bond metadata
+
+Within each date, grouping by (sector, rating) and “neutralizing” your raw signal
+
+1. Joining the tables
+Suppose you want, for a given rebalance date d, to fetch:
+
+bond static info (sector, rating)
+
+today’s market data (clean_price, duration, etc.)
+
+today’s ETF‐flow signal (raw_par_flow_6m, etc.)
+
+You can do this with a three‐way join:
+
+sql
+Copy
+Edit
+SELECT
+  b.bond_id,
+  b.sector,
+  b.rating,
+  m.clean_price,
+  m.duration_oas,
+  s.raw_par_flow_6m,
+  s.dur_adj_flow_6m
+FROM bond_master AS b
+JOIN bond_market_data AS m
+  ON m.bond_id = b.bond_id
+  AND m.trade_date = :d
+JOIN daily_signals AS s
+  ON s.bond_id = b.bond_id
+  AND s.signal_date = :d
+You’d parameterize :d with each rebalance date (e.g. every business day or month‐end).
+
+2. Sector/Rating Neutralization
+Once you have, for date d, a table of bonds with their “raw” signals, you neutralize by subtracting the cross‐sectional (sector, rating) mean. In SQL this looks like:
+
+sql
+Copy
+Edit
+WITH joined AS (
+  -- (the query above)
+),
+grouped AS (
+  SELECT
+    bond_id,
+    sector,
+    rating,
+    raw_par_flow_6m,
+    dur_adj_flow_6m,
+    -- compute the mean per (sector, rating) group
+    AVG(raw_par_flow_6m)  OVER (PARTITION BY sector, rating) AS mean_raw,
+    AVG(dur_adj_flow_6m)  OVER (PARTITION BY sector, rating) AS mean_dur
+  FROM joined
+)
+SELECT
+  bond_id,
+  sector,
+  rating,
+  -- subtract the group mean to get a "neutralized" signal
+  raw_par_flow_6m - mean_raw  AS neutral_raw_flow,
+  dur_adj_flow_6m - mean_dur  AS neutral_dur_flow
+FROM grouped;
+What’s happening?
+JOINED CTE pulls in each bond’s static and time‐series data for date d.
+
+grouped CTE uses window functions to compute the average signal within each (sector, rating) slice.
+
+The final SELECT subtracts out that group mean, so that after neutralization, each sector/rating bucket has cross‐sectional mean zero.
+
+Why this matters
+Cross‐sectional comparability
+Bonds in “Financials / BBB” tend to have very different flow magnitudes than those in “Industrials / BB.” By sector/rating neutralizing, you ensure you aren’t simply overweighting one risk bucket.
+
+Signal pureness
+Your contraflow or duration‐adjusted flow now represents a within‐group deviation from peers—precisely what you want to long/short, not the level‐driven sector effects.
+
+In code (Python/pandas) the same logic is:
+
+python
+Copy
+Edit
+df = joined_df.copy()
+# compute group means
+group_means = df.groupby(['sector','rating'])['raw_par_flow_6m','dur_adj_flow_6m'].transform('mean')
+# subtract
+df['neutral_raw_flow'] = df['raw_par_flow_6m'] - group_means['raw_par_flow_6m']
+df['neutral_dur_flow'] = df['dur_adj_flow_6m'] - group_means['dur_adj_flow_6m']
